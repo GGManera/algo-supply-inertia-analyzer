@@ -134,7 +134,7 @@ app.get('/api/bucket/:name', (req, res) => {
 });
 
 // Serve frontend if built
-const dashboardDist = path.join(process.cwd(), 'dashboard/dist');
+const dashboardDist = path.join(process.cwd(), 'Dashboard/dist');
 app.use(express.static(dashboardDist));
 
 app.use((req, res, next) => {
@@ -149,13 +149,14 @@ app.use((req, res, next) => {
       if (!req.url.includes('.map') && !req.url.includes('favicon.ico') && !req.url.includes('.well-known')) {
          console.warn(`[Dashboard] Could not serve index.html for request ${req.url}: ${err.message}`);
       }
-      res.status(404).send('Dashboard UI not found. Please run "npm run build" in dashboard folder.');
+      res.status(404).send('Dashboard UI not found. Please run "npm run build" in Dashboard folder.');
     }
   });
 });
 
 export function startServer() {
-  app.listen(port, () => {
-    console.log(`[Dashboard] Server running at http://localhost:${port}`);
+  // Listen on all network interfaces (0.0.0.0)
+  app.listen(CONFIG.PORT, '0.0.0.0', () => {
+    console.log(`[Dashboard] Server running at http://0.0.0.0:${CONFIG.PORT}`);
   });
 }
