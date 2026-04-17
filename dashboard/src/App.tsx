@@ -38,8 +38,8 @@ function App() {
   const fetchData = async () => {
     try {
       const [statsRes, distRes] = await Promise.all([
-        fetch('http://localhost:3000/api/stats'),
-        fetch('http://localhost:3000/api/distribution')
+        fetch('/api/stats'),
+        fetch('/api/distribution')
       ]);
       const statsData = await statsRes.json();
       const distData = await distRes.json();
@@ -66,7 +66,7 @@ function App() {
     setBucketDetails(null); // loading state
     
     try {
-      const res = await fetch(`http://localhost:3000/api/bucket/${encodeURIComponent(bucketName)}`);
+      const res = await fetch(`/api/bucket/${encodeURIComponent(bucketName)}`);
       const details = await res.json();
       setBucketDetails(details);
     } catch (e) {
