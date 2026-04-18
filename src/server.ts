@@ -14,20 +14,39 @@ const port = CONFIG.PORT;
 app.use(cors());
 app.use(express.json());
 
-// API Endpoints
+// Simple In-Memory Cache to prevent heavy DB scans on every request
+let cache: any = {
+  stats: null,
+  distribution: null,
+  buckets: {},
+  hodl: {},
+  lastUpdate: 0
+};
+
+const CACHE_TTL = 10000; // 10 seconds
+
 app.get('/api/stats', (req, res) => {
   try {
+    const now = Date.now();
+    if (cache.stats && (now - cache.lastUpdate < CACHE_TTL)) {
+       return res.json(cache.stats);
+    }
+
     const accounts = DB.getAllAccounts();
     const lastProcessedRound = DB.getMetaInt('last_processed_round');
     const censusTotal = DB.getMetaInt('census_total') || 0;
     
-    res.json({
+    const stats = {
       totalTracked: accounts.filter(a => a.balance_micro >= CONFIG.MIN_BALANCE_MICRO).length,
       lastProcessedRound,
       censusTotal,
       currentCount: accounts.length,
       thresholdAlgo: CONFIG.MIN_BALANCE_ALGO
-    });
+    };
+    
+    cache.stats = stats;
+    cache.lastUpdate = now;
+    res.json(stats);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -35,10 +54,13 @@ app.get('/api/stats', (req, res) => {
 
 app.get('/api/distribution', (req, res) => {
     try {
-        // We recreate the classification logic for real-time dashboard viewing
-        // In a more complex app we'd cache this or use the last snapshot
+        const nowMs = Date.now();
+        if (cache.distribution && (nowMs - cache.lastUpdate < CACHE_TTL)) {
+            return res.json(cache.distribution);
+        }
+
         const accounts = DB.getAllAccounts();
-        const now = Math.floor(Date.now() / 1000);
+        const now = Math.floor(nowMs / 1000);
         
         const buckets = [...CONFIG.INERTIA_BUCKETS].map(b => ({
             name: b.name,
@@ -73,11 +95,15 @@ app.get('/api/distribution', (req, res) => {
             }
         }
 
-        res.json({
+        const result = {
             total_supply,
             buckets: buckets.map(b => ({ name: b.name, emoji: b.emoji, count: b.count, supply: b.supply_micro / 1000000 })),
             unknown: { count: unknown.count, supply: unknown.supply_micro / 1000000 }
-        });
+        };
+        
+        cache.distribution = result;
+        cache.lastUpdate = nowMs;
+        res.json(result);
     } catch (err: any) {
         res.status(500).json({ error: err.message });
     }
@@ -86,13 +112,18 @@ app.get('/api/distribution', (req, res) => {
 app.get('/api/bucket/:name', (req, res) => {
   try {
     const bucketName = req.params.name;
+    const nowMs = Date.now();
+    
+    if (cache.buckets[bucketName] && (nowMs - cache.buckets[bucketName].ts < CACHE_TTL)) {
+      return res.json(cache.buckets[bucketName].data);
+    }
+
     const bucketIdx = CONFIG.INERTIA_BUCKETS.findIndex(b => b.name === bucketName);
     if (bucketIdx === -1 && bucketName !== 'Unknown') return res.status(404).json({ error: 'Bucket not found' });
     
     const maxDays = bucketName === 'Unknown' ? -1 : CONFIG.INERTIA_BUCKETS[bucketIdx].maxDays;
     const minDays = bucketName === 'Unknown' ? -1 : (bucketIdx > 0 ? CONFIG.INERTIA_BUCKETS[bucketIdx - 1].maxDays : 0);
     
-    // Formatting the criteria string
     let criteria = '';
     if (bucketName === 'Unknown') criteria = 'No last transaction timestamp available.';
     else if (minDays === 0) criteria = `Moved funds within the last ${maxDays} days.`;
@@ -100,7 +131,7 @@ app.get('/api/bucket/:name', (req, res) => {
     else criteria = `Inactive for ${minDays} to ${maxDays} days.`;
 
     const accounts = DB.getAllAccounts().filter(a => a.balance_micro >= CONFIG.MIN_BALANCE_MICRO);
-    const now = Math.floor(Date.now() / 1000);
+    const now = Math.floor(nowMs / 1000);
     
     let bucketAccounts = [];
     if (bucketName === 'Unknown') {
@@ -113,21 +144,12 @@ app.get('/api/bucket/:name', (req, res) => {
       });
     }
 
-    // Top 10 by Balance
-    const topBalance = [...bucketAccounts]
-      .sort((a, b) => b.balance_micro - a.balance_micro)
-      .slice(0, 10);
-      
-    // Top 10 by Most Recent Activity (highest timestamp)
-    const topRecent = [...bucketAccounts]
-      .sort((a, b) => (b.last_activity_ts || 0) - (a.last_activity_ts || 0))
-      .slice(0, 10);
+    const topBalance = [...bucketAccounts].sort((a, b) => b.balance_micro - a.balance_micro).slice(0, 10);
+    const topRecent = [...bucketAccounts].sort((a, b) => (b.last_activity_ts || 0) - (a.last_activity_ts || 0)).slice(0, 10);
 
-    res.json({
-      criteria,
-      topBalance,
-      topRecent
-    });
+    const result = { criteria, topBalance, topRecent };
+    cache.buckets[bucketName] = { data: result, ts: nowMs };
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -136,14 +158,20 @@ app.get('/api/bucket/:name', (req, res) => {
 app.get('/api/hodl', (req, res) => {
   try {
     const days = parseInt(req.query.days as string) || 0;
+    const nowMs = Date.now();
+    
+    if (cache.hodl[days] && (nowMs - cache.hodl[days].ts < CACHE_TTL)) {
+      return res.json(cache.hodl[days].data);
+    }
+
     const accounts = DB.getAllAccounts().filter(a => a.balance_micro >= CONFIG.MIN_BALANCE_MICRO);
-    const now = Math.floor(Date.now() / 1000);
+    const now = Math.floor(nowMs / 1000);
     
     let hodlSupplyMicro = 0;
     let hodlCount = 0;
 
     for (const a of accounts) {
-      if (!a.last_activity_ts) continue; // skip unknowns to be conservative, or include them? Usually unknown is old.
+      if (!a.last_activity_ts) continue;
       const daysSince = (now - a.last_activity_ts) / 86400;
       if (daysSince >= days) {
         hodlSupplyMicro += a.balance_micro;
@@ -151,11 +179,9 @@ app.get('/api/hodl', (req, res) => {
       }
     }
 
-    res.json({
-      days,
-      supply: hodlSupplyMicro / 1000000,
-      count: hodlCount
-    });
+    const result = { days, supply: hodlSupplyMicro / 1000000, count: hodlCount };
+    cache.hodl[days] = { data: result, ts: nowMs };
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
