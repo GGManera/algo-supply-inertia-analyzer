@@ -36,8 +36,12 @@ async function main() {
     
     // Run incremental immediately if we didn't just do a census
     if (lastProcessedRound && !forceCensus && !thresholdChanged) {
-      await runIncremental();
-      printAndSaveReport(generateClassificationReport());
+      try {
+        await runIncremental();
+        printAndSaveReport(generateClassificationReport());
+      } catch (e: any) {
+        console.warn(`[Analyzer] Initial sync failed: ${e.message}. Continuing to Dashboard...`);
+      }
     }
 
     // Keep syncing periodically
