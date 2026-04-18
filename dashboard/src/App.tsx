@@ -253,7 +253,7 @@ function App() {
       </motion.div>
 
       <footer style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.8rem', paddingTop: 20 }}>
-        Powered by Algorand Agent Skills • Live behavioral analysis on Mainnet
+        Powered by Algorand Agent Skills • <a href="https://github.com/GGManera/algo-supply-inertia-analyzer" target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)', textDecoration: 'none' }}>Open-sourced</a> with 💙 by <a href="https://x.com/GGManera" target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)', textDecoration: 'none' }}>gabriel.algo</a> for the Algorand ecosystem
       </footer>
     </div>
   );
