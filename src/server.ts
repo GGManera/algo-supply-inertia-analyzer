@@ -133,6 +133,34 @@ app.get('/api/bucket/:name', (req, res) => {
   }
 });
 
+app.get('/api/hodl', (req, res) => {
+  try {
+    const days = parseInt(req.query.days as string) || 0;
+    const accounts = DB.getAllAccounts().filter(a => a.balance_micro >= CONFIG.MIN_BALANCE_MICRO);
+    const now = Math.floor(Date.now() / 1000);
+    
+    let hodlSupplyMicro = 0;
+    let hodlCount = 0;
+
+    for (const a of accounts) {
+      if (!a.last_activity_ts) continue; // skip unknowns to be conservative, or include them? Usually unknown is old.
+      const daysSince = (now - a.last_activity_ts) / 86400;
+      if (daysSince >= days) {
+        hodlSupplyMicro += a.balance_micro;
+        hodlCount++;
+      }
+    }
+
+    res.json({
+      days,
+      supply: hodlSupplyMicro / 1000000,
+      count: hodlCount
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Serve frontend if built
 const dashboardDist = path.join(process.cwd(), 'Dashboard/dist');
 app.use(express.static(dashboardDist));
